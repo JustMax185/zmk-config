@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Ausgaben</title>
+  <meta name="description" content="Persönliche Ausgaben-Übersicht aus Supabase">
+  <meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Ausgaben">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="icon-btn" id="prevMonth" aria-label="Vorheriger Monat">‹</button>
+    <h1 id="monthLabel">–</h1>
+    <button class="icon-btn" id="nextMonth" aria-label="Nächster Monat">›</button>
+    <button class="icon-btn" id="openSettings" aria-label="Einstellungen">⚙</button>
+  </header>
+
+  <main id="dashboard" hidden>
+    <section class="card hero">
+      <div class="label">Ausgaben im Monat</div>
+      <div class="hero-value" id="heroValue">–</div>
+      <div class="delta" id="heroDelta"></div>
+    </section>
+
+    <section class="tiles">
+      <div class="tile"><div class="label">Ø pro Tag</div><div class="value" id="tilePerDay">–</div></div>
+      <div class="tile"><div class="label" id="tileForecastLabel">Prognose Monatsende</div><div class="value" id="tileForecast">–</div></div>
+      <div class="tile"><div class="label">Buchungen</div><div class="value" id="tileCount">–</div></div>
+      <div class="tile"><div class="label">Ø pro Monat (12 M.)</div><div class="value" id="tileAvg">–</div></div>
+    </section>
+
+    <section class="card">
+      <h2>Verlauf im Monat</h2>
+      <p class="sub">Kumuliert, verglichen mit dem Vormonat</p>
+      <div class="legend" id="lineLegend"></div>
+      <div class="chart" id="lineChart"></div>
+    </section>
+
+    <section class="card">
+      <h2>Kategorien</h2>
+      <p class="sub">Tippen, um die Buchungen zu filtern</p>
+      <div id="categoryBars" class="cat-list"></div>
+    </section>
+
+    <section class="card">
+      <h2>Letzte 12 Monate</h2>
+      <p class="sub">Tippen, um einen Monat auszuwählen</p>
+      <div class="chart" id="monthChart"></div>
+    </section>
+
+    <section class="card">
+      <div class="list-head">
+        <h2>Buchungen</h2>
+        <button class="chip" id="clearFilter" hidden></button>
+      </div>
+      <div id="txList"></div>
+    </section>
+
+    <p class="foot" id="lastSync"></p>
+  </main>
+
+  <section id="empty" class="card empty" hidden>
+    <h2>Willkommen</h2>
+    <p>Verbinde die App mit deiner Supabase-Tabelle, um deine Ausgaben zu sehen.</p>
+    <button class="btn primary" id="emptySetup">Einrichten</button>
+  </section>
+
+  <div id="status" class="status" role="status" hidden></div>
+
+  <dialog id="settings">
+    <form method="dialog" id="settingsForm">
+      <h2>Einstellungen</h2>
+
+      <fieldset>
+        <legend>Supabase</legend>
+        <label>Projekt-URL<input name="url" type="url" placeholder="https://xyz.supabase.co" required autocomplete="off"></label>
+        <label>Anon / Publishable Key<input name="key" type="text" required autocomplete="off" spellcheck="false"></label>
+        <label>Tabelle<input name="table" type="text" placeholder="expenses" required autocomplete="off"></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Login (empfohlen, wenn RLS aktiv ist)</legend>
+        <p class="hint" id="authState">Nicht angemeldet – Abfragen laufen mit dem Anon Key.</p>
+        <label>E-Mail<input name="email" type="email" autocomplete="username"></label>
+        <label>Passwort<input name="password" type="password" autocomplete="current-password"></label>
+        <div class="row">
+          <button type="button" class="btn" id="loginBtn">Anmelden</button>
+          <button type="button" class="btn" id="logoutBtn">Abmelden</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Spalten (leer = automatisch erkennen)</legend>
+        <label>Datum<input name="colDate" type="text" placeholder="z. B. date, created_at"></label>
+        <label>Betrag<input name="colAmount" type="text" placeholder="z. B. amount, betrag"></label>
+        <label>Kategorie<input name="colCategory" type="text" placeholder="z. B. category"></label>
+        <label>Beschreibung<input name="colNote" type="text" placeholder="z. B. description, note"></label>
+        <p class="hint" id="detected"></p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Anzeige</legend>
+        <label>Währung<input name="currency" type="text" placeholder="EUR" maxlength="3"></label>
+      </fieldset>
+
+      <div class="row end">
+        <button type="button" class="btn" id="closeSettings">Abbrechen</button>
+        <button type="submit" class="btn primary" id="saveSettings">Speichern &amp; laden</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="tooltip" class="tooltip" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
