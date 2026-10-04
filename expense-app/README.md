@@ -14,22 +14,21 @@ Kein Build-Schritt, keine Abhängigkeiten – nur statische Dateien.
 
 ## 1. Supabase vorbereiten
 
-Die App liest nur (`SELECT`). Da der Anon Key im Browser steht, sollte die Tabelle
-per Row Level Security geschützt sein und die App sich mit deinem Supabase-Benutzer anmelden.
+`supabase/schema.sql` im *SQL Editor* ausführen. Es legt zwei Tabellen an:
 
-```sql
--- Tabellenname ggf. anpassen
-alter table public.expenses enable row level security;
+| Tabelle | Spalten |
+|---|---|
+| `expenses` (Ausgaben) | `id`, `user_id`, `date`, `amount`, `category`, `description`, `created_at`, `updated_at` |
+| `income` (Einnahmen) | gleiche Spalten |
 
--- Nur angemeldete Benutzer dürfen lesen
-create policy "read own expenses"
-  on public.expenses for select
-  to authenticated
-  using (true);   -- oder: using (auth.uid() = user_id), falls es eine user_id-Spalte gibt
-```
+Absicherung:
+- Row Level Security ist aktiv und erzwungen: Jeder angemeldete Benutzer sieht und ändert nur seine eigenen Zeilen.
+- `user_id` wird beim Einfügen automatisch auf den angemeldeten Benutzer gesetzt und kann nicht auf jemand anderen umgestellt werden.
+- Ohne Login (nur mit dem Anon Key) gibt es keinerlei Zugriff.
+- Beträge müssen positiv sein; Kategorie bis 50, Beschreibung bis 500 Zeichen.
 
-Einen Benutzer legst du unter *Authentication → Users → Add user* an (E-Mail + Passwort).
-Wenn du neue Registrierungen verhindern willst: *Authentication → Providers → Email → „Allow new users to sign up“* ausschalten.
+Danach unter *Authentication → Users → Add user* deinen Benutzer anlegen und unter
+*Authentication → Sign In / Providers* „Allow new users to sign up“ ausschalten, damit sich niemand sonst registrieren kann.
 
 ## 2. App hosten
 
