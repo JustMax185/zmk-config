@@ -221,3 +221,4 @@ dialog input {
 
 details { margin-top: 14px; }
 summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text-secondary); }
+.form-error { color: var(--critical); font-size: 14px; margin: 12px 0 0; }

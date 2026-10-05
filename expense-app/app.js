@@ -489,8 +489,14 @@ async function refresh() {
     showDashboard();
     status(`${ausgaben.length + einnahmen.length} Buchungen geladen`, 1500);
   } catch (e) {
-    status(e.message, 6000);
-    if (e instanceof AuthError) openSettings();
+    if (e instanceof AuthError) {
+      status(null);
+      openSettings();
+      $('formError').textContent = e.message;
+      $('formError').hidden = false;
+    } else {
+      status(e.message, 6000);
+    }
   }
 }
 
@@ -508,6 +514,8 @@ function openSettings() {
   f.key.value = config?.key || '';
   f.email.value = session?.email || f.email.value || '';
   f.password.value = '';
+  $('formError').hidden = true;
+  $('connDetails').open = !f.key.value;
   updateAuthState();
   if (!$('settings').open) $('settings').showModal();
 }
@@ -515,8 +523,7 @@ function openSettings() {
 function updateAuthState() {
   $('authState').textContent = session ? `Angemeldet als ${session.email || 'Benutzer'}.` : 'Nicht angemeldet.';
   $('logoutBtn').hidden = !session;
-  $('settingsForm').password.required = !session;
-}
+  }
 
 function logout() {
   session = null;
@@ -559,15 +566,41 @@ function init() {
   $('settingsForm').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const f = $('settingsForm');
-    if (!f.reportValidity()) return;
-    config = { url: f.url.value.trim(), key: f.key.value.trim() };
+    const fail = (msg, field) => {
+      $('formError').textContent = msg;
+      $('formError').hidden = false;
+      if (field) {
+        if (field.closest('details')) field.closest('details').open = true;
+        field.focus();
+      }
+    };
+    $('formError').hidden = true;
+
+    const url = (f.url.value.trim() || DEFAULT_URL).replace(/\/+$/, '');
+    const key = f.key.value.trim();
+    const email = f.email.value.trim();
+    if (!/^https:\/\/.+/.test(url)) return fail('Bitte eine gültige Projekt-URL eintragen (https://…supabase.co).', f.url);
+    if (!key) return fail('Bitte den Publishable Key unter „Supabase-Verbindung“ eintragen.', f.key);
+    if (!email) return fail('Bitte E-Mail eintragen.', f.email);
+    if (!session && !f.password.value) return fail('Bitte Passwort eintragen.', f.password);
+
+    config = { url, key };
     save(CONFIG_KEY, config);
     if (f.password.value) {
+      const btn = $('submitBtn');
+      btn.disabled = true;
+      btn.textContent = 'Anmelden …';
       try {
-        await login(f.email.value.trim(), f.password.value);
+        await login(email, f.password.value);
       } catch (e) {
-        status(e.message === 'Invalid login credentials' ? 'E-Mail oder Passwort falsch.' : e.message, 5000);
-        return;
+        const msg = e.message === 'Invalid login credentials' ? 'E-Mail oder Passwort falsch.'
+          : /api key/i.test(e.message) ? 'Der Key passt nicht zum Projekt. Bitte prüfen.'
+          : e.message === 'Failed to fetch' ? 'Keine Verbindung zu Supabase. Projekt-URL und Internet prüfen.'
+          : e.message;
+        return fail(msg);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Anmelden & laden';
       }
     }
     f.password.value = '';
