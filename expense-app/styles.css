@@ -10,6 +10,9 @@
   --border: rgba(11, 11, 11, 0.10);
   --series-1: #2a78d6;
   --series-1-soft: #b7d3f6;
+  --series-income: #eb6834;
+  --series-save: #1baf7a;
+  --track: #e1e0d9;
   --series-compare: #c3c2b7;
   --wash: rgba(42, 120, 214, 0.10);
   --good: #006300;
@@ -29,6 +32,9 @@
     --border: rgba(255, 255, 255, 0.10);
     --series-1: #3987e5;
     --series-1-soft: #2a4466;
+    --series-income: #d95926;
+    --series-save: #199e70;
+    --track: #2c2c2a;
     --series-compare: #5c5b56;
     --wash: rgba(57, 135, 229, 0.14);
     --good: #0ca30c;
@@ -47,6 +53,9 @@
   --border: rgba(255, 255, 255, 0.10);
   --series-1: #3987e5;
   --series-1-soft: #2a4466;
+  --series-income: #d95926;
+  --series-save: #199e70;
+  --track: #2c2c2a;
   --series-compare: #5c5b56;
   --wash: rgba(57, 135, 229, 0.14);
   --good: #0ca30c;
@@ -187,3 +196,28 @@ dialog input {
 .tooltip .tt-head { color: var(--text-muted); font-size: 12px; }
 .tooltip .tt-row { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
 .tooltip .tt-row i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+.bal-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-variant-numeric: tabular-nums; }
+.bal-row span:first-child { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); }
+.bal-row i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.bal-total { border-top: 1px solid var(--grid); margin-top: 4px; padding-top: 10px; font-weight: 600; font-size: 17px; }
+.bal-total span:first-child { color: var(--text-primary); }
+.neg { color: var(--critical); }
+.pos { color: var(--good); }
+.split { display: flex; gap: 2px; height: 12px; margin-top: 12px; }
+.split i { display: block; min-width: 2px; }
+.split i:first-child { border-radius: 4px 0 0 4px; }
+.split i:last-child { border-radius: 0 4px 4px 0; }
+.split i:only-child { border-radius: 4px; }
+.bal-note { margin: 8px 0 0; }
+.legend i.sw-bar { width: 10px; height: 10px; border-radius: 2px; }
+
+.segmented { display: flex; gap: 4px; background: var(--page); border: 1px solid var(--border); border-radius: 10px; padding: 3px; margin-bottom: 4px; }
+.segmented button {
+  flex: 1; border: 0; background: transparent; border-radius: 8px; padding: 6px 4px;
+  font-size: 13px; color: var(--text-secondary); cursor: pointer;
+}
+.segmented button.active { background: var(--surface); color: var(--text-primary); font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+
+details { margin-top: 14px; }
+summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text-secondary); }

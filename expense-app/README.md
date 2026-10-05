@@ -1,15 +1,17 @@
-# Ausgaben – Visualisierung (PWA)
+# Ausgaben & Einnahmen – Übersicht (PWA)
 
-Kleine Web-App fürs Handy, die die Ausgaben aus einer Supabase-Tabelle liest und darstellt:
+Kleine Web-App fürs Handy, die die Tabellen `ausgaben` und `einnahmen` aus Supabase liest und darstellt:
 
-- Monatssumme mit Vergleich zum Vormonat (im laufenden Monat bis zum selben Tag)
+- Ausgaben im Monat mit Vergleich zum Vormonat (im laufenden Monat bis zum selben Tag)
+- Monatsbilanz: Einnahmen, Ausgaben, Gespart (`art = Sparen`), Übrig und Sparquote
 - Ø pro Tag, Prognose zum Monatsende, Anzahl Buchungen, Ø pro Monat
 - Kumulierter Verlauf im Monat vs. Vormonat (antippen/ziehen für Werte)
-- Kategorien-Ranking (antippen filtert die Buchungsliste)
-- Säulen der letzten 12 Monate (antippen wählt den Monat)
-- Buchungsliste nach Tagen gruppiert
+- Kategorien-Ranking der Ausgaben (antippen filtert die Buchungsliste)
+- Ausgaben und Einnahmen der letzten Monate (antippen wählt den Monat)
+- Buchungsliste nach Tagen, filterbar nach Alle / Ausgaben / Sparen / Einnahmen
 - Hell-/Dunkelmodus, offline mit den zuletzt geladenen Daten, nach unten ziehen = neu laden
 
+Sparbeträge zählen nicht als Ausgaben, sondern werden in der Bilanz extra ausgewiesen.
 Kein Build-Schritt, keine Abhängigkeiten – nur statische Dateien.
 
 ## 1. Supabase vorbereiten
@@ -66,23 +68,10 @@ Seite im Browser öffnen →
 - **iPhone (Safari):** Teilen → „Zum Home-Bildschirm“
 - **Android (Chrome):** Menü → „App installieren“
 
-Beim ersten Start ⚙ öffnen und eintragen:
-- Projekt-URL und Anon/Publishable Key (*Supabase → Project Settings → API*)
-- Tabellenname
-- E-Mail + Passwort → „Anmelden“, dann „Speichern & laden“
+Beim ersten Start auf **Anmelden** tippen und E-Mail + Passwort deines Supabase-Benutzers eingeben.
+Projekt-URL ist vorausgefüllt; den Publishable/Anon Key unter „Supabase-Verbindung“ einmalig eintragen
+(*Supabase → Project Settings → API Keys*).
 
-Alles wird nur lokal auf dem Gerät gespeichert.
+Das Passwort wird nicht gespeichert, nur die Anmeldung (verlängert sich selbst). Beim Abmelden
+werden auch die zwischengespeicherten Daten vom Gerät gelöscht.
 
-## Spalten
-
-Die App erkennt gängige Spaltennamen automatisch:
-
-| Feld | erkannte Namen (Auszug) |
-|---|---|
-| Datum | `date`, `datum`, `spent_at`, `created_at`, … |
-| Betrag | `amount`, `betrag`, `price`, `preis`, `value`, … |
-| Kategorie | `category`, `kategorie`, `type`, … |
-| Beschreibung | `description`, `beschreibung`, `note`, `title`, `name`, … |
-
-Abweichende Namen kannst du in den Einstellungen angeben. Beträge werden als Betrag
-(ohne Vorzeichen) gezählt – negative Werte für Ausgaben funktionieren also auch.

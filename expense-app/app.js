@@ -2,9 +2,10 @@
 
 /* ---------- Storage (only this device) ---------- */
 
-const CONFIG_KEY = 'expense-config';
-const SESSION_KEY = 'expense-session';
-const CACHE_KEY = 'expense-cache';
+const CONFIG_KEY = 'finance-config';
+const SESSION_KEY = 'finance-session';
+const CACHE_KEY = 'finance-cache';
+const DEFAULT_URL = 'https://kpmiewijjxcwzfafyskd.supabase.co';
 
 function load(key, fallback) {
   try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
@@ -43,24 +44,27 @@ async function authRequest(params, body) {
 const login = (email, password) => authRequest('password', { email, password });
 const refreshSession = () => authRequest('refresh_token', { refresh_token: session.refresh_token });
 
+class AuthError extends Error {}
+
 async function token() {
-  if (!session) return config.key;
+  if (!session) throw new AuthError('Bitte anmelden.');
   if (session.expires_at - 60 < Date.now() / 1000) {
-    try { await refreshSession(); } catch (e) { session = null; save(SESSION_KEY, null); throw e; }
+    try { await refreshSession(); } catch { session = null; save(SESSION_KEY, null); throw new AuthError('Anmeldung abgelaufen – bitte neu anmelden.'); }
   }
   return session.access_token;
 }
 
-async function fetchAllRows() {
+async function fetchTable(table, columns) {
   const pageSize = 1000;
   const rows = [];
   for (let offset = 0; ; offset += pageSize) {
-    const url = `${baseUrl()}/rest/v1/${encodeURIComponent(config.table)}?select=*&limit=${pageSize}&offset=${offset}`;
+    const url = `${baseUrl()}/rest/v1/${table}?select=${columns}&order=datum.desc,created_at.desc&limit=${pageSize}&offset=${offset}`;
     const res = await fetch(url, {
       headers: { apikey: config.key, Authorization: `Bearer ${await token()}` },
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
+      if (res.status === 401) { session = null; save(SESSION_KEY, null); throw new AuthError('Anmeldung abgelaufen – bitte neu anmelden.'); }
       throw new Error(err.message || `Abfrage fehlgeschlagen (${res.status})`);
     }
     const page = await res.json();
@@ -69,62 +73,30 @@ async function fetchAllRows() {
   }
 }
 
-/* ---------- Column detection & normalisation ---------- */
+/* ---------- Normalisation ---------- */
 
-const CANDIDATES = {
-  date: ['date', 'datum', 'spent_at', 'spent_on', 'booked_at', 'transaction_date', 'day', 'timestamp', 'created_at', 'inserted_at'],
-  amount: ['amount', 'betrag', 'value', 'wert', 'price', 'preis', 'sum', 'summe', 'cost', 'kosten', 'total'],
-  category: ['category', 'kategorie', 'cat', 'type', 'typ', 'group', 'gruppe'],
-  note: ['description', 'beschreibung', 'note', 'notiz', 'notes', 'title', 'titel', 'name', 'merchant', 'shop', 'text', 'comment', 'kommentar'],
-};
-
-function detectColumns(rows) {
-  const keys = rows.length ? Object.keys(rows[0]) : [];
-  const lower = keys.map(k => k.toLowerCase());
-  const pick = (field) => {
-    if (config.columns?.[field]) return config.columns[field];
-    for (const c of CANDIDATES[field]) {
-      const i = lower.indexOf(c);
-      if (i >= 0) return keys[i];
-    }
-    return null;
-  };
-  return { date: pick('date'), amount: pick('amount'), category: pick('category'), note: pick('note'), all: keys };
-}
-
+// datum is a Postgres date ("2026-10-05"): build a local date, not UTC midnight
 function parseDate(v) {
-  if (v == null || v === '') return null;
-  if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
-    const [y, m, d] = v.split('-').map(Number);
-    return new Date(y, m - 1, d);
-  }
-  const d = new Date(v);
-  return isNaN(d) ? null : d;
+  const [y, m, d] = String(v).split('-').map(Number);
+  return new Date(y, m - 1, d);
 }
 
-function parseAmount(v) {
-  if (typeof v === 'number') return v;
-  if (typeof v !== 'string') return NaN;
-  let s = v.replace(/[^\d,.\-]/g, '');
-  if (s.includes(',') && s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(',', '.');
-  else s = s.replace(/,/g, '');
-  return parseFloat(s);
-}
-
-function normalise(rows, cols) {
+// kind: 'ausgabe' | 'sparen' | 'einnahme'
+function normalise(ausgaben, einnahmen) {
   const out = [];
-  for (const r of rows) {
-    const date = parseDate(r[cols.date]);
-    const amount = Math.abs(parseAmount(r[cols.amount]));
-    if (!date || !isFinite(amount)) continue;
+  for (const r of ausgaben) {
     out.push({
-      date,
-      amount,
-      category: (cols.category && r[cols.category] != null && String(r[cols.category]).trim()) || 'Ohne Kategorie',
-      note: cols.note && r[cols.note] != null ? String(r[cols.note]) : '',
+      date: parseDate(r.datum),
+      amount: Number(r.betrag),
+      kind: r.art === 'Sparen' ? 'sparen' : 'ausgabe',
+      category: r.kategorie || 'Sonstiges',
+      note: r.beschreibung || '',
     });
   }
-  return out.sort((a, b) => b.date - a.date);
+  for (const r of einnahmen) {
+    out.push({ date: parseDate(r.datum), amount: Number(r.betrag), kind: 'einnahme', category: 'Einnahme', note: r.beschreibung || '' });
+  }
+  return out.filter(e => !isNaN(e.date) && isFinite(e.amount)).sort((a, b) => b.date - a.date);
 }
 
 /* ---------- Formatting ---------- */
@@ -132,29 +104,23 @@ function normalise(rows, cols) {
 const MONTHS = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 
-let moneyFmt, moneyFmtCompact;
-function setupFormatters() {
-  const currency = (config?.currency || 'EUR').toUpperCase();
-  try {
-    moneyFmt = new Intl.NumberFormat('de-DE', { style: 'currency', currency });
-    moneyFmtCompact = new Intl.NumberFormat('de-DE', { style: 'currency', currency, notation: 'compact', maximumFractionDigits: 1 });
-  } catch {
-    moneyFmt = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
-    moneyFmtCompact = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', notation: 'compact', maximumFractionDigits: 1 });
-  }
-}
-const money = (n) => moneyFmt.format(n);
+const moneyFmt = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
+const moneyFmtCompact = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', notation: 'compact', maximumFractionDigits: 1 });
+const money = (n) => moneyFmt.format(n).replace('-', '−');
 const moneyShort = (n) => (n >= 10000 ? moneyFmtCompact.format(n) : new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(n));
 const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 /* ---------- State ---------- */
 
 const $ = (id) => document.getElementById(id);
-let expenses = [];
-let detectedCols = null;
+let entries = [];
+let expenses = [];   // art = Ausgabe
+let savings = [];    // art = Sparen
+let income = [];     // einnahmen
 const today = new Date();
 let view = { year: today.getFullYear(), month: today.getMonth() };
 let categoryFilter = null;
+let kindFilter = 'alle';
 let txLimit = 40;
 
 const monthKey = (y, m) => y * 12 + m;
@@ -199,14 +165,18 @@ function render() {
   if (isCurrent) $('tileForecast').textContent = money((total / Math.max(1, elapsed)) * dim);
   else $('tileForecast').textContent = cur.length ? money(Math.max(...cur.map(e => e.amount))) : '–';
   $('tileCount').textContent = cur.length;
-  const last12 = monthsSeries(12);
+  const first = entries.length ? entries[entries.length - 1].date : today;
+  const span = monthKey(view.year, view.month) - monthKey(first.getFullYear(), first.getMonth()) + 1;
+  const last12 = monthsSeries(Math.min(12, Math.max(6, span)));
+  $('monthTitle').textContent = `Letzte ${last12.length} Monate`;
   const withData = last12.filter(m => m.total > 0);
   $('tileAvg').textContent = withData.length ? money(sum(withData.map(m => ({ amount: m.total }))) / withData.length) : '–';
 
+  renderBalance(sum(income.filter(e => inMonth(e, year, month))), total, sum(savings.filter(e => inMonth(e, year, month))));
   renderLineChart(cur, prevList, year, month, isCurrent ? elapsed : dim);
   renderCategories(cur, total);
   renderMonthChart(last12);
-  renderTransactions(cur);
+  renderTransactions(entries.filter(e => inMonth(e, year, month)));
 
   const cache = load(CACHE_KEY, null);
   $('lastSync').textContent = cache?.at ? `Zuletzt geladen: ${new Date(cache.at).toLocaleString('de-DE')} · Zum Aktualisieren nach unten ziehen` : '';
@@ -216,7 +186,12 @@ function monthsSeries(n) {
   const list = [];
   for (let i = n - 1; i >= 0; i--) {
     const { year, month } = shiftMonth(view.year, view.month, -i);
-    list.push({ year, month, total: sum(expenses.filter(e => inMonth(e, year, month))) });
+    list.push({
+      year, month,
+      total: sum(expenses.filter(e => inMonth(e, year, month))),
+      income: sum(income.filter(e => inMonth(e, year, month))),
+      saved: sum(savings.filter(e => inMonth(e, year, month))),
+    });
   }
   return list;
 }
@@ -243,6 +218,31 @@ function yAxis(svg, max, x0, x1, yOf) {
     svg.appendChild(el('line', { x1: x0, x2: x1, y1: y, y2: y, class: i === 0 ? 'baseline' : 'grid' }));
     svg.appendChild(el('text', { x: x0 - 6, y: y + 4, 'text-anchor': 'end' }, moneyShort(v)));
   }
+}
+
+/* Month balance: where the income went. Rows double as the legend for the split bar. */
+function renderBalance(inc, out, saved) {
+  const left = inc - out - saved;
+  const rows = [
+    ['Einnahmen', inc, 'var(--series-income)', ''],
+    ['Ausgaben', out, 'var(--series-1)', '−'],
+    ['Gespart', saved, 'var(--series-save)', '−'],
+  ];
+  let html = rows.map(([label, v, color, sign]) =>
+    `<div class="bal-row"><span><i style="background:${color}"></i>${label}</span><span>${v ? sign : ''}${esc(money(v))}</span></div>`).join('');
+  html += `<div class="bal-row bal-total"><span>Übrig</span><span class="${left < 0 ? 'neg' : ''}">${esc(money(left))}</span></div>`;
+
+  const base = Math.max(inc, out + saved);
+  if (base > 0) {
+    const seg = (v, color) => (v > 0 ? `<i style="flex:${v};background:${color}"></i>` : '');
+    html += `<div class="split" role="img" aria-label="Aufteilung der Einnahmen">${seg(out, 'var(--series-1)')}${seg(saved, 'var(--series-save)')}${seg(Math.max(0, left), 'var(--track)')}</div>`;
+  }
+  let note;
+  if (!inc) note = 'Keine Einnahmen erfasst.';
+  else if (left < 0) note = `${money(-left)} mehr ausgegeben als eingenommen.`;
+  else note = `Sparquote ${Math.round((saved / inc) * 100)} % · ${Math.round((left / inc) * 100)} % noch frei`;
+  html += `<p class="sub bal-note">${esc(note)}</p>`;
+  $('balance').innerHTML = html;
 }
 
 /* Cumulative line: this month vs previous month */
@@ -340,6 +340,7 @@ function renderCategories(cur, total) {
     </button>`).join('');
   box.querySelectorAll('.cat').forEach(b => b.addEventListener('click', () => {
     categoryFilter = categoryFilter === b.dataset.cat ? null : b.dataset.cat;
+    if (categoryFilter) kindFilter = 'ausgabe';
     txLimit = 40;
     render();
   }));
@@ -351,7 +352,7 @@ function renderMonthChart(series) {
   box.innerHTML = '';
   const W = Math.max(280, box.clientWidth || 320), H = 180;
   const m = { l: 48, r: 4, t: 10, b: 24 };
-  const max = niceMax(Math.max(...series.map(s => s.total)));
+  const max = niceMax(Math.max(...series.map(s => Math.max(s.total, s.income))));
   const band = (W - m.l - m.r) / series.length;
   const bw = Math.min(24, band - 6);
   const yOf = (v) => H - m.b - (v / max) * (H - m.t - m.b);
@@ -373,8 +374,11 @@ function renderMonthChart(series) {
     const hit = el('rect', { x: m.l + band * i, y: 0, width: band, height: H, fill: 'transparent', style: 'cursor:pointer' });
     hit.addEventListener('pointerenter', (ev) => {
       const rect = svg.getBoundingClientRect();
-      showTooltip(`<div class="tt-head">${MONTHS[s.month]} ${s.year}</div><div class="tt-row">${esc(money(s.total))}</div>`,
-        rect.left + (cx / W) * rect.width, rect.top + (y / H) * rect.height);
+      showTooltip(`<div class="tt-head">${MONTHS[s.month]} ${s.year}</div>` +
+        `<div class="tt-row"><i style="background:var(--series-income)"></i>Einnahmen: ${esc(money(s.income))}</div>` +
+        `<div class="tt-row"><i style="background:var(--series-1)"></i>Ausgaben: ${esc(money(s.total))}</div>` +
+        `<div class="tt-row"><i style="background:var(--series-save)"></i>Gespart: ${esc(money(s.saved))}</div>`,
+        rect.left + (cx / W) * rect.width, rect.top + (Math.min(y, yOf(s.income)) / H) * rect.height);
     });
     hit.addEventListener('pointerleave', hideTooltip);
     hit.addEventListener('click', () => {
@@ -385,11 +389,31 @@ function renderMonthChart(series) {
     });
     svg.appendChild(hit);
   });
+
+  // Income as a line with markers over the columns; months without income break the line
+  const pts = series.map((s, i) => ({ x: m.l + band * i + band / 2, y: yOf(s.income), s }));
+  if (series.some(s => s.income > 0)) {
+    const d = pts.map((p, i) => (p.s.income > 0 ? `${i && pts[i - 1].s.income > 0 ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}` : '')).join('');
+    const line = el('path', { d, fill: 'none', stroke: 'var(--series-income)', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', 'pointer-events': 'none' });
+    svg.appendChild(line);
+    for (const p of pts) {
+      if (p.s.income > 0) svg.appendChild(el('circle', { cx: p.x, cy: p.y, r: 4, fill: 'var(--series-income)', stroke: 'var(--surface)', 'stroke-width': 2, 'pointer-events': 'none' }));
+    }
+  }
   box.appendChild(svg);
+  $('monthLegend').innerHTML =
+    '<span><i class="sw-bar" style="background:var(--series-1)"></i>Ausgaben</span>' +
+    '<span><i style="background:var(--series-income)"></i>Einnahmen</span>';
 }
 
-function renderTransactions(cur) {
-  const list = categoryFilter ? cur.filter(e => e.category === categoryFilter) : cur;
+const KIND_LABEL = { ausgabe: 'Ausgabe', sparen: 'Sparen', einnahme: 'Einnahme' };
+
+function renderTransactions(monthEntries) {
+  let list = monthEntries;
+  if (kindFilter !== 'alle') list = list.filter(e => e.kind === kindFilter);
+  if (categoryFilter) list = list.filter(e => e.kind === 'ausgabe' && e.category === categoryFilter);
+
+  document.querySelectorAll('#kindFilter button').forEach(b => b.classList.toggle('active', b.dataset.kind === kindFilter));
   const chip = $('clearFilter');
   chip.hidden = !categoryFilter;
   if (categoryFilter) chip.textContent = `${categoryFilter} ✕`;
@@ -405,12 +429,12 @@ function renderTransactions(cur) {
   let html = '';
   for (const [, items] of days) {
     const d = items[0].date;
-    const dayTotal = sum(list.filter(e => e.date.toDateString() === d.toDateString()));
-    html += `<div class="day"><div class="day-head"><span>${d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })}</span><span>${esc(money(dayTotal))}</span></div>`;
+    html += `<div class="day"><div class="day-head"><span>${d.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short' })}</span></div>`;
     for (const e of items) {
-      html += `<div class="tx"><div class="t-main"><div class="t-note">${esc(e.note || e.category)}</div>` +
-        (e.note ? `<div class="t-cat">${esc(e.category)}</div>` : '') +
-        `</div><div class="t-amt">${esc(money(e.amount))}</div></div>`;
+      const meta = e.kind === 'ausgabe' ? e.category : e.kind === 'sparen' ? `Sparen · ${e.category}` : 'Einnahme';
+      const amt = e.kind === 'einnahme' ? `<span class="pos">+${esc(money(e.amount))}</span>` : `−${esc(money(e.amount))}`;
+      html += `<div class="tx"><div class="t-main"><div class="t-note">${esc(e.note || KIND_LABEL[e.kind])}</div>` +
+        `<div class="t-cat">${esc(meta)}</div></div><div class="t-amt">${amt}</div></div>`;
     }
     html += '</div>';
   }
@@ -443,25 +467,30 @@ function status(msg, ms = 2500) {
 
 /* ---------- Data loading ---------- */
 
-function applyRows(rows) {
-  detectedCols = detectColumns(rows);
-  if (rows.length && (!detectedCols.date || !detectedCols.amount)) {
-    throw new Error(`Datum- oder Betragsspalte nicht gefunden. Vorhandene Spalten: ${detectedCols.all.join(', ')}. Bitte in den Einstellungen angeben.`);
-  }
-  expenses = normalise(rows, detectedCols);
+function applyData(data) {
+  entries = normalise(data.ausgaben, data.einnahmen);
+  expenses = entries.filter(e => e.kind === 'ausgabe');
+  savings = entries.filter(e => e.kind === 'sparen');
+  income = entries.filter(e => e.kind === 'einnahme');
 }
 
 async function refresh() {
   if (!config) return;
+  if (!session) { openSettings(); return; }
   status('Lade Daten …', 0);
   try {
-    const rows = await fetchAllRows();
-    applyRows(rows);
-    save(CACHE_KEY, { at: Date.now(), rows });
+    const [ausgaben, einnahmen] = await Promise.all([
+      fetchTable('ausgaben', 'datum,betrag,art,kategorie,beschreibung'),
+      fetchTable('einnahmen', 'datum,betrag,beschreibung'),
+    ]);
+    const data = { at: Date.now(), ausgaben, einnahmen };
+    applyData(data);
+    save(CACHE_KEY, data);
     showDashboard();
-    status(rows.length ? `${expenses.length} Ausgaben geladen` : 'Tabelle ist leer – oder RLS blockiert den Zugriff (siehe Login).', rows.length ? 1500 : 6000);
+    status(`${ausgaben.length + einnahmen.length} Buchungen geladen`, 1500);
   } catch (e) {
     status(e.message, 6000);
+    if (e instanceof AuthError) openSettings();
   }
 }
 
@@ -475,43 +504,29 @@ function showDashboard() {
 
 function openSettings() {
   const f = $('settingsForm');
-  f.url.value = config?.url || '';
+  f.url.value = config?.url || DEFAULT_URL;
   f.key.value = config?.key || '';
-  f.table.value = config?.table || '';
-  f.colDate.value = config?.columns?.date || '';
-  f.colAmount.value = config?.columns?.amount || '';
-  f.colCategory.value = config?.columns?.category || '';
-  f.colNote.value = config?.columns?.note || '';
-  f.currency.value = config?.currency || 'EUR';
-  f.email.value = session?.email || '';
+  f.email.value = session?.email || f.email.value || '';
   f.password.value = '';
   updateAuthState();
-  $('detected').textContent = detectedCols
-    ? `Erkannt: Datum = ${detectedCols.date || '–'}, Betrag = ${detectedCols.amount || '–'}, Kategorie = ${detectedCols.category || '–'}, Beschreibung = ${detectedCols.note || '–'}`
-    : '';
-  $('settings').showModal();
-}
-
-function readForm() {
-  const f = $('settingsForm');
-  return {
-    url: f.url.value.trim(),
-    key: f.key.value.trim(),
-    table: f.table.value.trim(),
-    currency: (f.currency.value.trim() || 'EUR').toUpperCase(),
-    columns: {
-      date: f.colDate.value.trim(),
-      amount: f.colAmount.value.trim(),
-      category: f.colCategory.value.trim(),
-      note: f.colNote.value.trim(),
-    },
-  };
+  if (!$('settings').open) $('settings').showModal();
 }
 
 function updateAuthState() {
-  $('authState').textContent = session
-    ? `Angemeldet als ${session.email || 'Benutzer'}.`
-    : 'Nicht angemeldet – Abfragen laufen mit dem Anon Key.';
+  $('authState').textContent = session ? `Angemeldet als ${session.email || 'Benutzer'}.` : 'Nicht angemeldet.';
+  $('logoutBtn').hidden = !session;
+  $('settingsForm').password.required = !session;
+}
+
+function logout() {
+  session = null;
+  save(SESSION_KEY, null);
+  save(CACHE_KEY, null);   // keep no financial data on the device after logging out
+  entries = expenses = savings = income = [];
+  $('dashboard').hidden = true;
+  $('empty').hidden = false;
+  updateAuthState();
+  status('Abgemeldet');
 }
 
 /* ---------- Pull to refresh ---------- */
@@ -528,40 +543,38 @@ function setupPullToRefresh() {
 /* ---------- Init ---------- */
 
 function init() {
-  setupFormatters();
-
   $('prevMonth').addEventListener('click', () => { view = shiftMonth(view.year, view.month, -1); categoryFilter = null; txLimit = 40; render(); });
   $('nextMonth').addEventListener('click', () => { view = shiftMonth(view.year, view.month, 1); categoryFilter = null; txLimit = 40; render(); });
   $('clearFilter').addEventListener('click', () => { categoryFilter = null; render(); });
+  document.querySelectorAll('#kindFilter button').forEach(b => b.addEventListener('click', () => {
+    kindFilter = b.dataset.kind;
+    if (kindFilter !== 'ausgabe') categoryFilter = null;
+    txLimit = 40;
+    render();
+  }));
   $('openSettings').addEventListener('click', openSettings);
   $('emptySetup').addEventListener('click', openSettings);
   $('closeSettings').addEventListener('click', () => $('settings').close());
 
-  $('settingsForm').addEventListener('submit', (ev) => {
+  $('settingsForm').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const f = $('settingsForm');
     if (!f.reportValidity()) return;
-    config = readForm();
+    config = { url: f.url.value.trim(), key: f.key.value.trim() };
     save(CONFIG_KEY, config);
-    setupFormatters();
+    if (f.password.value) {
+      try {
+        await login(f.email.value.trim(), f.password.value);
+      } catch (e) {
+        status(e.message === 'Invalid login credentials' ? 'E-Mail oder Passwort falsch.' : e.message, 5000);
+        return;
+      }
+    }
+    f.password.value = '';
     $('settings').close();
     refresh();
   });
-
-  $('loginBtn').addEventListener('click', async () => {
-    const f = $('settingsForm');
-    const draft = readForm();
-    if (!draft.url || !draft.key) { status('Bitte zuerst URL und Key eintragen.'); return; }
-    config = { ...config, ...draft };
-    save(CONFIG_KEY, config);
-    try {
-      await login(f.email.value.trim(), f.password.value);
-      f.password.value = '';
-      updateAuthState();
-      status('Angemeldet');
-    } catch (e) { status(e.message, 5000); }
-  });
-  $('logoutBtn').addEventListener('click', () => { session = null; save(SESSION_KEY, null); updateAuthState(); status('Abgemeldet'); });
+  $('logoutBtn').addEventListener('click', () => { $('settings').close(); logout(); });
 
   let resizeTimer;
   window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!$('dashboard').hidden) render(); }, 150); });
@@ -569,13 +582,11 @@ function init() {
   setupPullToRefresh();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
-  if (!config) { $('empty').hidden = false; return; }
+  if (!config || !session) { $('empty').hidden = false; return; }
 
   // Show cached data immediately, then refresh in the background
   const cache = load(CACHE_KEY, null);
-  if (cache?.rows) {
-    try { applyRows(cache.rows); showDashboard(); } catch { /* fall through to refresh */ }
-  }
+  if (cache?.ausgaben) { applyData(cache); showDashboard(); }
   refresh();
 }
 

@@ -31,11 +31,17 @@
       <div class="delta" id="heroDelta"></div>
     </section>
 
+    <section class="card">
+      <h2>Monatsbilanz</h2>
+      <p class="sub">Wohin die Einnahmen gegangen sind</p>
+      <div id="balance"></div>
+    </section>
+
     <section class="tiles">
       <div class="tile"><div class="label">Ø pro Tag</div><div class="value" id="tilePerDay">–</div></div>
       <div class="tile"><div class="label" id="tileForecastLabel">Prognose Monatsende</div><div class="value" id="tileForecast">–</div></div>
       <div class="tile"><div class="label">Buchungen</div><div class="value" id="tileCount">–</div></div>
-      <div class="tile"><div class="label">Ø pro Monat (12 M.)</div><div class="value" id="tileAvg">–</div></div>
+      <div class="tile"><div class="label">Ø pro Monat</div><div class="value" id="tileAvg">–</div></div>
     </section>
 
     <section class="card">
@@ -52,8 +58,9 @@
     </section>
 
     <section class="card">
-      <h2>Letzte 12 Monate</h2>
+      <h2 id="monthTitle">Letzte 12 Monate</h2>
       <p class="sub">Tippen, um einen Monat auszuwählen</p>
+      <div class="legend" id="monthLegend"></div>
       <div class="chart" id="monthChart"></div>
     </section>
 
@@ -61,6 +68,12 @@
       <div class="list-head">
         <h2>Buchungen</h2>
         <button class="chip" id="clearFilter" hidden></button>
+      </div>
+      <div class="segmented" id="kindFilter" role="group" aria-label="Buchungsart">
+        <button data-kind="alle" class="active">Alle</button>
+        <button data-kind="ausgabe">Ausgaben</button>
+        <button data-kind="sparen">Sparen</button>
+        <button data-kind="einnahme">Einnahmen</button>
       </div>
       <div id="txList"></div>
     </section>
@@ -70,51 +83,35 @@
 
   <section id="empty" class="card empty" hidden>
     <h2>Willkommen</h2>
-    <p>Verbinde die App mit deiner Supabase-Tabelle, um deine Ausgaben zu sehen.</p>
-    <button class="btn primary" id="emptySetup">Einrichten</button>
+    <p>Melde dich mit deinem Supabase-Benutzer an, um deine Einnahmen und Ausgaben zu sehen.</p>
+    <button class="btn primary" id="emptySetup">Anmelden</button>
   </section>
 
   <div id="status" class="status" role="status" hidden></div>
 
   <dialog id="settings">
     <form method="dialog" id="settingsForm">
-      <h2>Einstellungen</h2>
+      <h2>Anmelden</h2>
+      <p class="hint" id="authState">Nicht angemeldet.</p>
 
       <fieldset>
-        <legend>Supabase</legend>
-        <label>Projekt-URL<input name="url" type="url" placeholder="https://xyz.supabase.co" required autocomplete="off"></label>
-        <label>Anon / Publishable Key<input name="key" type="text" required autocomplete="off" spellcheck="false"></label>
-        <label>Tabelle<input name="table" type="text" placeholder="expenses" required autocomplete="off"></label>
-      </fieldset>
-
-      <fieldset>
-        <legend>Login (empfohlen, wenn RLS aktiv ist)</legend>
-        <p class="hint" id="authState">Nicht angemeldet – Abfragen laufen mit dem Anon Key.</p>
-        <label>E-Mail<input name="email" type="email" autocomplete="username"></label>
+        <label>E-Mail<input name="email" type="email" required autocomplete="username" autocapitalize="off"></label>
         <label>Passwort<input name="password" type="password" autocomplete="current-password"></label>
-        <div class="row">
-          <button type="button" class="btn" id="loginBtn">Anmelden</button>
-          <button type="button" class="btn" id="logoutBtn">Abmelden</button>
-        </div>
+        <p class="hint">Das Passwort wird nicht gespeichert – nur eine Anmeldung, die sich selbst verlängert.</p>
       </fieldset>
 
-      <fieldset>
-        <legend>Spalten (leer = automatisch erkennen)</legend>
-        <label>Datum<input name="colDate" type="text" placeholder="z. B. date, created_at"></label>
-        <label>Betrag<input name="colAmount" type="text" placeholder="z. B. amount, betrag"></label>
-        <label>Kategorie<input name="colCategory" type="text" placeholder="z. B. category"></label>
-        <label>Beschreibung<input name="colNote" type="text" placeholder="z. B. description, note"></label>
-        <p class="hint" id="detected"></p>
-      </fieldset>
-
-      <fieldset>
-        <legend>Anzeige</legend>
-        <label>Währung<input name="currency" type="text" placeholder="EUR" maxlength="3"></label>
-      </fieldset>
+      <details>
+        <summary>Supabase-Verbindung</summary>
+        <fieldset>
+          <label>Projekt-URL<input name="url" type="url" required autocomplete="off"></label>
+          <label>Publishable / Anon Key<input name="key" type="text" required autocomplete="off" spellcheck="false" autocapitalize="off"></label>
+        </fieldset>
+      </details>
 
       <div class="row end">
+        <button type="button" class="btn" id="logoutBtn" hidden>Abmelden</button>
         <button type="button" class="btn" id="closeSettings">Abbrechen</button>
-        <button type="submit" class="btn primary" id="saveSettings">Speichern &amp; laden</button>
+        <button type="submit" class="btn primary">Anmelden &amp; laden</button>
       </div>
     </form>
   </dialog>
