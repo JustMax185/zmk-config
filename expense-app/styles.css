@@ -13,6 +13,7 @@
   --series-income: #eb6834;
   --series-save: #1baf7a;
   --track: #e1e0d9;
+  --track-strong: #c3c2b7;
   --series-compare: #c3c2b7;
   --wash: rgba(42, 120, 214, 0.10);
   --good: #006300;
@@ -35,6 +36,7 @@
     --series-income: #d95926;
     --series-save: #199e70;
     --track: #2c2c2a;
+    --track-strong: #5c5b56;
     --series-compare: #5c5b56;
     --wash: rgba(57, 135, 229, 0.14);
     --good: #0ca30c;
@@ -56,6 +58,7 @@
   --series-income: #d95926;
   --series-save: #199e70;
   --track: #2c2c2a;
+  --track-strong: #5c5b56;
   --series-compare: #5c5b56;
   --wash: rgba(57, 135, 229, 0.14);
   --good: #0ca30c;
@@ -222,3 +225,13 @@ dialog input {
 details { margin-top: 14px; }
 summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text-secondary); }
 .form-error { color: var(--critical); font-size: 14px; margin: 12px 0 0; }
+
+.sk-link { opacity: .32; transition: opacity .15s; }
+.sk-link:hover, .sk-link:active { opacity: .55; }
+.chart text.sk-label { fill: var(--text-primary); font-size: 12px; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.chart text.sk-value { fill: var(--text-secondary); font-size: 11px; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+dialog select {
+  display: block; width: 100%; margin-top: 4px; padding: 10px;
+  border: 1px solid var(--axis); border-radius: 8px;
+  background: var(--page); color: var(--text-primary); font: inherit; font-size: 16px;
+}

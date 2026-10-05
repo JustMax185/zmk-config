@@ -5,6 +5,7 @@
 const CONFIG_KEY = 'finance-config';
 const SESSION_KEY = 'finance-session';
 const CACHE_KEY = 'finance-cache';
+const PREFS_KEY = 'finance-prefs';
 const DEFAULT_URL = 'https://kpmiewijjxcwzfafyskd.supabase.co';
 
 function load(key, fallback) {
@@ -19,6 +20,7 @@ function save(key, value) {
 
 let config = load(CONFIG_KEY, null);
 let session = load(SESSION_KEY, null);
+let prefs = { startDay: 1, ...load(PREFS_KEY, {}) };
 
 /* ---------- Supabase REST ---------- */
 
@@ -118,14 +120,36 @@ let expenses = [];   // art = Ausgabe
 let savings = [];    // art = Sparen
 let income = [];     // einnahmen
 const today = new Date();
-let view = { year: today.getFullYear(), month: today.getMonth() };
+let view = null;   // { year, month } of the month the current period starts in
 let categoryFilter = null;
 let kindFilter = 'alle';
 let txLimit = 40;
 
 const monthKey = (y, m) => y * 12 + m;
-const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
-const inMonth = (e, y, m) => e.date.getFullYear() === y && e.date.getMonth() === m;
+const DAY = 864e5;
+
+/* A "month" is a period that starts on prefs.startDay (1–28) and ends the day before
+   that day in the following month. It is named after the month it starts in. */
+const periodStart = (y, m) => new Date(y, m, prefs.startDay);
+const periodOf = (date) => {
+  const shift = date.getDate() < prefs.startDay ? -1 : 0;
+  const k = monthKey(date.getFullYear(), date.getMonth()) + shift;
+  return { year: Math.floor(k / 12), month: ((k % 12) + 12) % 12 };
+};
+const periodKeyOf = (date) => { const p = periodOf(date); return monthKey(p.year, p.month); };
+const daysInMonth = (y, m) => Math.round((periodStart(y, m + 1) - periodStart(y, m)) / DAY);
+const dayOfPeriod = (date, y, m) => Math.round((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - periodStart(y, m)) / DAY) + 1;
+const inMonth = (e, y, m) => e.pk === monthKey(y, m);
+const fmtDay = (d) => `${d.getDate()}. ${MONTHS_SHORT[d.getMonth()]}`;
+function periodLabel(y, m, short = false) {
+  if (prefs.startDay === 1) return short ? MONTHS_SHORT[m] : `${MONTHS[m]} ${y}`;
+  const end = new Date(periodStart(y, m + 1) - DAY);
+  if (short) return MONTHS_SHORT[m];
+  return `${fmtDay(periodStart(y, m))} – ${fmtDay(end)}${end.getFullYear() !== today.getFullYear() ? ` ${end.getFullYear()}` : ''}`;
+}
+function applyPeriods() {
+  for (const e of entries) e.pk = periodKeyOf(e.date);
+}
 const shiftMonth = (y, m, delta) => { const k = monthKey(y, m) + delta; return { year: Math.floor(k / 12), month: ((k % 12) + 12) % 12 }; };
 const sum = (list) => list.reduce((s, e) => s + e.amount, 0);
 
@@ -133,9 +157,9 @@ const sum = (list) => list.reduce((s, e) => s + e.amount, 0);
 
 function render() {
   const { year, month } = view;
-  const isCurrent = year === today.getFullYear() && month === today.getMonth();
-  $('monthLabel').textContent = `${MONTHS[month]} ${year}`;
-  $('nextMonth').disabled = monthKey(year, month) >= monthKey(today.getFullYear(), today.getMonth());
+  const isCurrent = monthKey(year, month) === periodKeyOf(today);
+  $('monthLabel').textContent = periodLabel(year, month);
+  $('nextMonth').disabled = monthKey(year, month) >= periodKeyOf(today);
 
   const cur = expenses.filter(e => inMonth(e, year, month));
   const prev = shiftMonth(year, month, -1);
@@ -143,13 +167,14 @@ function render() {
   const total = sum(cur);
   const prevTotal = sum(prevList);
   const dim = daysInMonth(year, month);
-  const elapsed = isCurrent ? today.getDate() : dim;
+  const elapsed = isCurrent ? dayOfPeriod(today, year, month) : dim;
 
   // Hero + delta (spending up = bad). For the running month compare like with like:
   // the previous month up to the same day.
   $('heroValue').textContent = money(total);
-  const compareTotal = isCurrent ? sum(prevList.filter(e => e.date.getDate() <= elapsed)) : prevTotal;
-  const compareLabel = isCurrent ? `${MONTHS[prev.month]} bis zum ${elapsed}.` : MONTHS[prev.month];
+  const compareTotal = isCurrent ? sum(prevList.filter(e => dayOfPeriod(e.date, prev.year, prev.month) <= elapsed)) : prevTotal;
+  const prevName = prefs.startDay === 1 ? MONTHS[prev.month] : 'Vormonat';
+  const compareLabel = isCurrent ? `${prevName} bis Tag ${elapsed}` : prevName;
   if (compareTotal > 0) {
     const pct = ((total - compareTotal) / compareTotal) * 100;
     const cls = pct > 0 ? 'up' : 'down';
@@ -166,13 +191,16 @@ function render() {
   else $('tileForecast').textContent = cur.length ? money(Math.max(...cur.map(e => e.amount))) : '–';
   $('tileCount').textContent = cur.length;
   const first = entries.length ? entries[entries.length - 1].date : today;
-  const span = monthKey(view.year, view.month) - monthKey(first.getFullYear(), first.getMonth()) + 1;
+  const span = monthKey(view.year, view.month) - periodKeyOf(first) + 1;
   const last12 = monthsSeries(Math.min(12, Math.max(6, span)));
   $('monthTitle').textContent = `Letzte ${last12.length} Monate`;
   const withData = last12.filter(m => m.total > 0);
   $('tileAvg').textContent = withData.length ? money(sum(withData.map(m => ({ amount: m.total }))) / withData.length) : '–';
 
-  renderBalance(sum(income.filter(e => inMonth(e, year, month))), total, sum(savings.filter(e => inMonth(e, year, month))));
+  const incList = income.filter(e => inMonth(e, year, month));
+  const saveList = savings.filter(e => inMonth(e, year, month));
+  renderBalance(sum(incList), total, sum(saveList));
+  renderSankey(incList, cur, saveList);
   renderLineChart(cur, prevList, year, month, isCurrent ? elapsed : dim);
   renderCategories(cur, total);
   renderMonthChart(last12);
@@ -232,17 +260,140 @@ function renderBalance(inc, out, saved) {
     `<div class="bal-row"><span><i style="background:${color}"></i>${label}</span><span>${v ? sign : ''}${esc(money(v))}</span></div>`).join('');
   html += `<div class="bal-row bal-total"><span>Übrig</span><span class="${left < 0 ? 'neg' : ''}">${esc(money(left))}</span></div>`;
 
-  const base = Math.max(inc, out + saved);
-  if (base > 0) {
-    const seg = (v, color) => (v > 0 ? `<i style="flex:${v};background:${color}"></i>` : '');
-    html += `<div class="split" role="img" aria-label="Aufteilung der Einnahmen">${seg(out, 'var(--series-1)')}${seg(saved, 'var(--series-save)')}${seg(Math.max(0, left), 'var(--track)')}</div>`;
-  }
   let note;
   if (!inc) note = 'Keine Einnahmen erfasst.';
   else if (left < 0) note = `${money(-left)} mehr ausgegeben als eingenommen.`;
   else note = `Sparquote ${Math.round((saved / inc) * 100)} % · ${Math.round((left / inc) * 100)} % noch frei`;
   html += `<p class="sub bal-note">${esc(note)}</p>`;
   $('balance').innerHTML = html;
+}
+
+/* Sankey: income sources → Ausgaben / Gespart / Übrig → categories.
+   Columns hold the same total, so each band is the overlap of a source's and a
+   target's slice of that total – bands never cross. */
+const SANKEY_MAX_CATS = 6;
+
+function topN(list, n, otherLabel) {
+  const map = new Map();
+  for (const e of list) map.set(e.key, (map.get(e.key) || 0) + e.amount);
+  const sorted = [...map].sort((a, b) => b[1] - a[1]);
+  if (sorted.length <= n) return sorted;
+  const rest = sorted.slice(n - 1).reduce((t, [, v]) => t + v, 0);
+  return [...sorted.slice(0, n - 1), [otherLabel, rest]];
+}
+
+function renderSankey(incList, outList, saveList) {
+  const box = $('sankey');
+  box.innerHTML = '';
+  const inc = sum(incList), out = sum(outList), saved = sum(saveList);
+  const total = Math.max(inc, out + saved);
+  if (!total) { box.innerHTML = '<p class="sub">Keine Buchungen in diesem Zeitraum.</p>'; return; }
+
+  const C = { inc: 'var(--series-income)', out: 'var(--series-1)', save: 'var(--series-save)', left: 'var(--track-strong)', gap: 'var(--critical)' };
+  const col0 = topN(incList.map(e => ({ key: e.note || 'Einnahme', amount: e.amount })), 4, 'Weitere Einnahmen')
+    .map(([name, v]) => ({ name, v, color: C.inc }));
+  if (out + saved > inc) col0.push({ name: 'Rücklagen', v: out + saved - inc, color: C.gap });
+  const col1 = [
+    { name: 'Ausgaben', v: out, color: C.out },
+    { name: 'Gespart', v: saved, color: C.save },
+    { name: 'Übrig', v: Math.max(0, inc - out - saved), color: C.left },
+  ].filter(n => n.v > 0);
+  const col2 = [
+    ...topN(outList.map(e => ({ key: e.category, amount: e.amount })), SANKEY_MAX_CATS, 'Weitere').map(([name, v]) => ({ name, v, color: C.out, parent: 'Ausgaben' })),
+    ...topN(saveList.map(e => ({ key: e.category, amount: e.amount })), 3, 'Weiteres Sparen').map(([name, v]) => ({ name, v, color: C.save, parent: 'Gespart' })),
+  ];
+  const cols = [col0, col1, col2];
+
+  const W = Math.max(300, box.clientWidth || 320);
+  const nodeW = 8, pad = 6, top = 4;
+  // Labels sit right of every node: columns 0 and 1 get two lines (name / amount),
+  // the last column one line, so it is pushed left to leave room for its labels.
+  const xs = [0, Math.round(W * 0.31), Math.round(W * 0.6)];
+  const labelW = [xs[1] - nodeW - 10, xs[2] - xs[1] - nodeW - 10, W - xs[2] - nodeW - 6];
+  const minSlot = [30, 30, 20];
+  // one scale for all columns so flows are conserved; small nodes get a minimum slot for their label
+  const baseH = 260;
+  const k = Math.min(...cols.map(c => (baseH - (c.length - 1) * pad) / c.reduce((t, n) => t + n.v, 0)));
+  let H = 0;
+  cols.forEach((col, ci) => {
+    let y = top;
+    for (const n of col) {
+      n.x = xs[ci]; n.c = ci; n.h = Math.max(1, n.v * k);
+      const slot = Math.max(n.h, minSlot[ci]);
+      n.y = y + (slot - n.h) / 2;
+      y += slot + pad;
+    }
+    H = Math.max(H, y - pad + top);
+  });
+
+  // Overlap of cumulative intervals between two stacked lists → bands
+  function link(sources, targets) {
+    const bands = [];
+    let a = 0;
+    const tStarts = []; let b = 0;
+    for (const t of targets) { tStarts.push(b); b += t.v; }
+    for (const s of sources) {
+      const sa = a, sb = a + s.v; a = sb;
+      targets.forEach((t, i) => {
+        const lo = Math.max(sa, tStarts[i]), hi = Math.min(sb, tStarts[i] + t.v);
+        if (hi - lo > 1e-6) bands.push({ s, t, v: hi - lo, sy: s.y + (lo - sa) * k, ty: t.y + (lo - tStarts[i]) * k });
+      });
+    }
+    return bands;
+  }
+  const bands = [
+    ...link(col0, col1),
+    ...col1.flatMap(p => link([p], col2.filter(c => c.parent === p.name))),
+  ];
+
+  const svg = el('svg', { role: 'img', 'aria-label': 'Geldfluss von Einnahmen zu Ausgaben und Sparen' });
+  const tip = (html) => (ev) => {
+    const r = svg.getBoundingClientRect();
+    showTooltip(html, ev.clientX, ev.clientY - 8 > r.top ? ev.clientY - 8 : r.top);
+  };
+  for (const l of bands) {
+    const x0 = l.s.x + nodeW, x1 = l.t.x, xm = (x0 + x1) / 2, h = l.v * k;
+    const d = `M${x0},${l.sy}C${xm},${l.sy} ${xm},${l.ty} ${x1},${l.ty}L${x1},${l.ty + h}C${xm},${l.ty + h} ${xm},${l.sy + h} ${x0},${l.sy + h}Z`;
+    const path = el('path', { d, fill: l.t.color, class: 'sk-link' });
+    const html = `<div class="tt-head">${esc(l.s.name)} → ${esc(l.t.name)}</div><div class="tt-row">${esc(money(l.v))}</div>`;
+    path.addEventListener('pointerenter', tip(html));
+    path.addEventListener('pointerdown', tip(html));
+    path.addEventListener('pointerleave', hideTooltip);
+    svg.appendChild(path);
+  }
+  for (const col of cols) {
+    for (const n of col) {
+      const rect = el('rect', { x: n.x, y: n.y, width: nodeW, height: n.h, rx: 2, fill: n.color });
+      const share = Math.round((n.v / (n.c === 2 ? (n.parent === 'Gespart' ? saved : out) : total)) * 100);
+      const html = `<div class="tt-head">${esc(n.name)}</div><div class="tt-row">${esc(money(n.v))} · ${share} %</div>`;
+      rect.addEventListener('pointerenter', tip(html));
+      rect.addEventListener('pointerdown', tip(html));
+      rect.addEventListener('pointerleave', hideTooltip);
+      svg.appendChild(rect);
+      const tx = n.x + nodeW + 6, cy = n.y + n.h / 2;
+      if (n.c < 2) {
+        svg.append(
+          el('text', { x: tx, y: cy - 2, class: 'sk-label', 'data-w': labelW[n.c] }, n.name),
+          el('text', { x: tx, y: cy + 12, class: 'sk-value' }, `${moneyShort(n.v)} €`));
+      } else {
+        const t = el('text', { x: tx, y: cy + 4, class: 'sk-label', 'data-w': labelW[2] });
+        t.append(el('tspan', {}, n.name), el('tspan', { class: 'sk-value', dx: 4 }, `${moneyShort(n.v)} €`));
+        svg.appendChild(t);
+      }
+    }
+  }
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  box.appendChild(svg);
+  // Shorten names that would run into the next column (needs the SVG in the DOM to measure)
+  for (const t of svg.querySelectorAll('text[data-w]')) {
+    const max = Number(t.dataset.w);
+    const nameNode = t.firstElementChild || t;
+    let name = nameNode.textContent;
+    while (t.getComputedTextLength() > max && name.length > 3) {
+      name = name.slice(0, -1);
+      nameNode.textContent = `${name.trimEnd()}…`;
+    }
+  }
 }
 
 /* Cumulative line: this month vs previous month */
@@ -254,17 +405,20 @@ function renderLineChart(cur, prevList, year, month, lastDay) {
   const dim = daysInMonth(year, month);
   const prev = shiftMonth(year, month, -1);
   const prevDim = daysInMonth(prev.year, prev.month);
+  const curName = prefs.startDay === 1 ? MONTHS[month] : 'Dieser Monat';
+  const prevName = prefs.startDay === 1 ? MONTHS[prev.month] : 'Vormonat';
 
-  const cumulative = (list, days, upTo) => {
+  const cumulative = (list, days, upTo, ym) => {
     const perDay = new Array(days + 1).fill(0);
-    for (const e of list) perDay[e.date.getDate()] += e.amount;
+    for (const e of list) { const d = dayOfPeriod(e.date, ...ym); if (d >= 1 && d <= days) perDay[d] += e.amount; }
     const out = [];
     let acc = 0;
     for (let d = 1; d <= upTo; d++) { acc += perDay[d]; out.push({ d, v: acc }); }
     return out;
   };
-  const curPts = cumulative(cur, dim, lastDay);
-  const prevPts = cumulative(prevList, prevDim, Math.min(prevDim, dim));
+  const curPts = cumulative(cur, dim, lastDay, [year, month]);
+  const prevPts = cumulative(prevList, prevDim, Math.min(prevDim, dim), [prev.year, prev.month]);
+  const dateOf = (d) => new Date(periodStart(year, month).getTime() + (d - 1) * DAY + 2 * 3600e3);
 
   const max = niceMax(Math.max(curPts.at(-1)?.v || 0, prevPts.at(-1)?.v || 0));
   const xOf = (d) => m.l + ((d - 1) / (dim - 1)) * (W - m.l - m.r);
@@ -273,7 +427,7 @@ function renderLineChart(cur, prevList, year, month, lastDay) {
   const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Kumulierte Ausgaben im Monat' });
   yAxis(svg, max, m.l, W - m.r, yOf);
   for (const d of [1, 8, 15, 22, dim]) {
-    svg.appendChild(el('text', { x: xOf(d), y: H - 6, 'text-anchor': d === 1 ? 'start' : d === dim ? 'end' : 'middle' }, `${d}.`));
+    svg.appendChild(el('text', { x: xOf(d), y: H - 6, 'text-anchor': d === 1 ? 'start' : d === dim ? 'end' : 'middle' }, `${dateOf(d).getDate()}.`));
   }
 
   const path = (pts) => pts.map((p, i) => `${i ? 'L' : 'M'}${xOf(p.d).toFixed(1)},${yOf(p.v).toFixed(1)}`).join('');
@@ -307,9 +461,9 @@ function renderLineChart(cur, prevList, year, month, lastDay) {
       else dot.setAttribute('visibility', 'hidden');
     };
     place(dotCur, c); place(dotPrev, p);
-    let html = `<div class="tt-head">${d}. Tag</div>`;
-    if (c) html += `<div class="tt-row"><i style="background:var(--series-1)"></i>${MONTHS_SHORT[month]}: ${esc(money(c.v))}</div>`;
-    if (p) html += `<div class="tt-row"><i style="background:var(--series-compare)"></i>${MONTHS_SHORT[prev.month]}: ${esc(money(p.v))}</div>`;
+    let html = `<div class="tt-head">Tag ${d} · ${esc(fmtDay(dateOf(d)))}</div>`;
+    if (c) html += `<div class="tt-row"><i style="background:var(--series-1)"></i>${esc(curName)}: ${esc(money(c.v))}</div>`;
+    if (p) html += `<div class="tt-row"><i style="background:var(--series-compare)"></i>${esc(prevName)}: ${esc(money(p.v))}</div>`;
     showTooltip(html, ev.clientX, rect.top + (m.t / H) * rect.height);
   };
   const hide = () => { [cross, dotCur, dotPrev].forEach(n => n.setAttribute('visibility', 'hidden')); hideTooltip(); };
@@ -320,8 +474,8 @@ function renderLineChart(cur, prevList, year, month, lastDay) {
 
   box.appendChild(svg);
   $('lineLegend').innerHTML =
-    `<span><i style="background:var(--series-1)"></i>${MONTHS[month]}</span>` +
-    `<span><i style="background:var(--series-compare)"></i>${MONTHS[prev.month]}</span>`;
+    `<span><i style="background:var(--series-1)"></i>${esc(curName)}</span>` +
+    `<span><i style="background:var(--series-compare)"></i>${esc(prevName)}</span>`;
 }
 
 /* Category ranking — horizontal bars, single hue */
@@ -370,11 +524,11 @@ function renderMonthChart(series) {
       const d = `M${x},${base}V${y + r}Q${x},${y} ${x + r},${y}H${x + bw - r}Q${x + bw},${y} ${x + bw},${y + r}V${base}Z`;
       svg.appendChild(el('path', { d, fill: selected ? 'var(--series-1)' : 'var(--series-1-soft)' }));
     }
-    svg.appendChild(el('text', { x: cx, y: H - 6, 'text-anchor': 'middle', 'font-weight': selected ? 600 : 400 }, MONTHS_SHORT[s.month].slice(0, 3)));
+    svg.appendChild(el('text', { x: cx, y: H - 6, 'text-anchor': 'middle', 'font-weight': selected ? 600 : 400 }, periodLabel(s.year, s.month, true).slice(0, 3)));
     const hit = el('rect', { x: m.l + band * i, y: 0, width: band, height: H, fill: 'transparent', style: 'cursor:pointer' });
     hit.addEventListener('pointerenter', (ev) => {
       const rect = svg.getBoundingClientRect();
-      showTooltip(`<div class="tt-head">${MONTHS[s.month]} ${s.year}</div>` +
+      showTooltip(`<div class="tt-head">${esc(periodLabel(s.year, s.month))}</div>` +
         `<div class="tt-row"><i style="background:var(--series-income)"></i>Einnahmen: ${esc(money(s.income))}</div>` +
         `<div class="tt-row"><i style="background:var(--series-1)"></i>Ausgaben: ${esc(money(s.total))}</div>` +
         `<div class="tt-row"><i style="background:var(--series-save)"></i>Gespart: ${esc(money(s.saved))}</div>`,
@@ -472,6 +626,7 @@ function applyData(data) {
   expenses = entries.filter(e => e.kind === 'ausgabe');
   savings = entries.filter(e => e.kind === 'sparen');
   income = entries.filter(e => e.kind === 'einnahme');
+  applyPeriods();
 }
 
 async function refresh() {
@@ -516,6 +671,7 @@ function openSettings() {
   f.password.value = '';
   $('formError').hidden = true;
   $('connDetails').open = !f.key.value;
+  f.startDay.value = String(prefs.startDay);
   updateAuthState();
   if (!$('settings').open) $('settings').showModal();
 }
@@ -523,6 +679,7 @@ function openSettings() {
 function updateAuthState() {
   $('authState').textContent = session ? `Angemeldet als ${session.email || 'Benutzer'}.` : 'Nicht angemeldet.';
   $('logoutBtn').hidden = !session;
+  $('submitBtn').textContent = session ? 'Speichern & laden' : 'Anmelden & laden';
   }
 
 function logout() {
@@ -550,6 +707,7 @@ function setupPullToRefresh() {
 /* ---------- Init ---------- */
 
 function init() {
+  view = periodOf(today);
   $('prevMonth').addEventListener('click', () => { view = shiftMonth(view.year, view.month, -1); categoryFilter = null; txLimit = 40; render(); });
   $('nextMonth').addEventListener('click', () => { view = shiftMonth(view.year, view.month, 1); categoryFilter = null; txLimit = 40; render(); });
   $('clearFilter').addEventListener('click', () => { categoryFilter = null; render(); });
@@ -600,7 +758,7 @@ function init() {
         return fail(msg);
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Anmelden & laden';
+        updateAuthState();
       }
     }
     f.password.value = '';
@@ -608,6 +766,15 @@ function init() {
     refresh();
   });
   $('logoutBtn').addEventListener('click', () => { $('settings').close(); logout(); });
+  const startSel = $('settingsForm').startDay;
+  for (let d = 1; d <= 28; d++) startSel.add(new Option(d === 1 ? '1. (Kalendermonat)' : `${d}.`, String(d)));
+  startSel.addEventListener('change', () => {
+    prefs.startDay = Number(startSel.value);
+    save(PREFS_KEY, prefs);
+    view = periodOf(today);
+    applyPeriods();
+    if (!$('dashboard').hidden) render();
+  });
 
   let resizeTimer;
   window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!$('dashboard').hidden) render(); }, 150); });

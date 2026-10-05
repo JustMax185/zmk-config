@@ -4,6 +4,8 @@ Kleine Web-App fürs Handy, die die Tabellen `ausgaben` und `einnahmen` aus Supa
 
 - Ausgaben im Monat mit Vergleich zum Vormonat (im laufenden Monat bis zum selben Tag)
 - Monatsbilanz: Einnahmen, Ausgaben, Gespart (`art = Sparen`), Übrig und Sparquote
+- Geldfluss als Sankey-Diagramm: Einnahmen → Ausgaben / Gespart / Übrig → Kategorien
+- Monatsbeginn einstellbar (⚙ → „Monat beginnt am“), z. B. 15. bis 14. passend zum Gehaltseingang
 - Ø pro Tag, Prognose zum Monatsende, Anzahl Buchungen, Ø pro Monat
 - Kumulierter Verlauf im Monat vs. Vormonat (antippen/ziehen für Werte)
 - Kategorien-Ranking der Ausgaben (antippen filtert die Buchungsliste)

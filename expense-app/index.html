@@ -37,6 +37,12 @@
       <div id="balance"></div>
     </section>
 
+    <section class="card">
+      <h2>Geldfluss</h2>
+      <p class="sub">Von den Einnahmen bis in die Kategorien · antippen für Beträge</p>
+      <div class="chart" id="sankey"></div>
+    </section>
+
     <section class="tiles">
       <div class="tile"><div class="label">Ø pro Tag</div><div class="value" id="tilePerDay">–</div></div>
       <div class="tile"><div class="label" id="tileForecastLabel">Prognose Monatsende</div><div class="value" id="tileForecast">–</div></div>
@@ -91,13 +97,23 @@
 
   <dialog id="settings">
     <form method="dialog" id="settingsForm">
-      <h2>Anmelden</h2>
+      <h2>Einstellungen</h2>
+
+      <fieldset>
+        <legend>Monat</legend>
+        <label>Monat beginnt am<select name="startDay"></select></label>
+        <p class="hint">Z. B. 15., wenn dein Gehalt am 15. kommt – dann geht ein Monat vom 15. bis zum 14.</p>
+      </fieldset>
+
+      <fieldset>
+      <legend>Anmeldung</legend>
       <p class="hint" id="authState">Nicht angemeldet.</p>
 
       <fieldset>
         <label>E-Mail<input name="email" type="email" autocomplete="username" autocapitalize="off"></label>
         <label>Passwort<input name="password" type="password" autocomplete="current-password"></label>
         <p class="hint">Das Passwort wird nicht gespeichert – nur eine Anmeldung, die sich selbst verlängert.</p>
+      </fieldset>
       </fieldset>
 
       <details id="connDetails">
