@@ -14,21 +14,40 @@ Kein Build-Schritt, keine Abhängigkeiten – nur statische Dateien.
 
 ## 1. Supabase vorbereiten
 
-`supabase/schema.sql` im *SQL Editor* ausführen. Es legt zwei Tabellen an:
+`supabase/schema.sql` im *SQL Editor* ausführen. Es legt zwei Tabellen an, deren Spalten
+den Feldern des iPhone-Kurzbefehls entsprechen:
 
-| Tabelle | Spalten |
-|---|---|
-| `expenses` (Ausgaben) | `id`, `user_id`, `date`, `amount`, `category`, `description`, `created_at`, `updated_at` |
-| `income` (Einnahmen) | gleiche Spalten |
+| Tabelle | Spalten aus dem Kurzbefehl | automatisch |
+|---|---|---|
+| `ausgaben` | `datum`, `betrag`, `art` (`Ausgabe` oder `Sparen`), `kategorie`, `beschreibung` | `id`, `user_id`, `created_at`, `updated_at` |
+| `einnahmen` | `datum`, `betrag`, `beschreibung` | `id`, `user_id`, `created_at`, `updated_at` |
 
 Absicherung:
 - Row Level Security ist aktiv und erzwungen: Jeder angemeldete Benutzer sieht und ändert nur seine eigenen Zeilen.
 - `user_id` wird beim Einfügen automatisch auf den angemeldeten Benutzer gesetzt und kann nicht auf jemand anderen umgestellt werden.
-- Ohne Login (nur mit dem Anon Key) gibt es keinerlei Zugriff.
-- Beträge müssen positiv sein; Kategorie bis 50, Beschreibung bis 500 Zeichen.
+- Ohne Login (nur mit dem Anon Key) gibt es keinerlei Zugriff – weder lesen noch schreiben.
+- Prüfungen: `betrag` > 0, `art` nur `Ausgabe`/`Sparen` (Groß-/Kleinschreibung und Leerzeichen werden korrigiert),
+  `kategorie` bis 50, `beschreibung` bis 500 Zeichen. `datum` als `JJJJ-MM-TT`.
+
+Das Skript ist wiederholbar und löscht keine Daten. Wer die erste Version (`expenses`/`income`)
+schon ausgeführt hat, bekommt Tabellen und Spalten automatisch umbenannt.
 
 Danach unter *Authentication → Users → Add user* deinen Benutzer anlegen und unter
 *Authentication → Sign In / Providers* „Allow new users to sign up“ ausschalten, damit sich niemand sonst registrieren kann.
+
+### Kurzbefehl anpassen
+
+Weil ohne Login nichts mehr geht, muss sich der Kurzbefehl vor dem Speichern anmelden:
+
+1. **Inhalte von URL abrufen** – `POST https://<projekt>.supabase.co/auth/v1/token?grant_type=password`
+   - Header: `apikey: <Anon Key>`
+   - JSON: `email`, `password`
+2. **Wörterbuchwert abrufen** – `access_token` aus der Antwort.
+3. **Inhalte von URL abrufen** – `POST https://<projekt>.supabase.co/rest/v1/ausgaben` (bzw. `/einnahmen`)
+   - Header: `apikey: <Anon Key>`, `Authorization: Bearer <access_token>`, `Content-Type: application/json`
+   - JSON: `datum`, `betrag`, `art`, `kategorie`, `beschreibung` (bei Einnahmen nur `datum`, `betrag`, `beschreibung`)
+
+Niemals den `service_role`-Key in den Kurzbefehl legen – der umgeht alle Schutzregeln.
 
 ## 2. App hosten
 
