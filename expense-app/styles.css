@@ -228,8 +228,8 @@ summary { cursor: pointer; font-weight: 600; font-size: 14px; color: var(--text-
 
 .sk-link { opacity: .32; transition: opacity .15s; }
 .sk-link:hover, .sk-link:active { opacity: .55; }
-.chart text.sk-label { fill: var(--text-primary); font-size: 12px; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
-.chart text.sk-value { fill: var(--text-secondary); font-size: 11px; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.chart text.sk-label { fill: var(--text-primary); font-size: 11px; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.chart text.sk-value { fill: var(--text-secondary); font-size: 10px; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
 dialog select {
   display: block; width: 100%; margin-top: 4px; padding: 10px;
   border: 1px solid var(--axis); border-radius: 8px;

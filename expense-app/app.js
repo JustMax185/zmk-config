@@ -268,9 +268,9 @@ function renderBalance(inc, out, saved) {
   $('balance').innerHTML = html;
 }
 
-/* Sankey: income sources → Ausgaben / Gespart / Übrig → categories.
-   Columns hold the same total, so each band is the overlap of a source's and a
-   target's slice of that total – bands never cross. */
+/* Sankey in four stages: income sources → Einnahmen → Ausgaben / Gespart / Übrig → categories.
+   A shortfall enters as "Rücklagen" next to Einnahmen. Adjacent stages hold the same total,
+   so each band is the overlap of a source's and a target's slice of it – bands never cross. */
 const SANKEY_MAX_CATS = 6;
 
 function topN(list, n, otherLabel) {
@@ -282,6 +282,13 @@ function topN(list, n, otherLabel) {
   return [...sorted.slice(0, n - 1), [otherLabel, rest]];
 }
 
+let measureCtx;
+function textWidth(text, size) {
+  measureCtx ||= document.createElement('canvas').getContext('2d');
+  measureCtx.font = `${size}px ${getComputedStyle(document.body).fontFamily}`;
+  return measureCtx.measureText(text).width;
+}
+
 function renderSankey(incList, outList, saveList) {
   const box = $('sankey');
   box.innerHTML = '';
@@ -290,36 +297,47 @@ function renderSankey(incList, outList, saveList) {
   if (!total) { box.innerHTML = '<p class="sub">Keine Buchungen in diesem Zeitraum.</p>'; return; }
 
   const C = { inc: 'var(--series-income)', out: 'var(--series-1)', save: 'var(--series-save)', left: 'var(--track-strong)', gap: 'var(--critical)' };
-  const col0 = topN(incList.map(e => ({ key: e.note || 'Einnahme', amount: e.amount })), 4, 'Weitere Einnahmen')
+  const col0 = topN(incList.map(e => ({ key: e.note || 'Einnahme', amount: e.amount })), 4, 'Weitere')
     .map(([name, v]) => ({ name, v, color: C.inc }));
-  if (out + saved > inc) col0.push({ name: 'Rücklagen', v: out + saved - inc, color: C.gap });
-  const col1 = [
+  const col1 = [{ name: 'Einnahmen', v: inc, color: C.inc }];
+  if (out + saved > inc) col1.push({ name: 'Rücklagen', v: out + saved - inc, color: C.gap });
+  const col2 = [
     { name: 'Ausgaben', v: out, color: C.out },
     { name: 'Gespart', v: saved, color: C.save },
     { name: 'Übrig', v: Math.max(0, inc - out - saved), color: C.left },
-  ].filter(n => n.v > 0);
-  const col2 = [
-    ...topN(outList.map(e => ({ key: e.category, amount: e.amount })), SANKEY_MAX_CATS, 'Weitere').map(([name, v]) => ({ name, v, color: C.out, parent: 'Ausgaben' })),
-    ...topN(saveList.map(e => ({ key: e.category, amount: e.amount })), 3, 'Weiteres Sparen').map(([name, v]) => ({ name, v, color: C.save, parent: 'Gespart' })),
   ];
-  const cols = [col0, col1, col2];
+  const col3 = [
+    ...topN(outList.map(e => ({ key: e.category, amount: e.amount })), SANKEY_MAX_CATS, 'Weitere').map(([name, v]) => ({ name, v, color: C.out, parent: 'Ausgaben' })),
+    ...topN(saveList.map(e => ({ key: e.category, amount: e.amount })), 3, 'Weiteres').map(([name, v]) => ({ name, v, color: C.save, parent: 'Gespart' })),
+  ];
+  const cols = [col0, col1, col2, col3].map(c => c.filter(n => n.v > 0));
+  const amount = (v) => `${moneyShort(v)} €`;
 
+  // Horizontal layout: every node is labelled on its right with its name over its amount.
+  // Each gap gets room for its column's widest label; when the screen is too narrow the
+  // income sources are shortened first, the stage labels last.
   const W = Math.max(300, box.clientWidth || 320);
-  const nodeW = 8, pad = 6, top = 4;
-  // Labels sit right of every node: columns 0 and 1 get two lines (name / amount),
-  // the last column one line, so it is pushed left to leave room for its labels.
-  const xs = [0, Math.round(W * 0.31), Math.round(W * 0.6)];
-  const labelW = [xs[1] - nodeW - 10, xs[2] - xs[1] - nodeW - 10, W - xs[2] - nodeW - 6];
-  const minSlot = [30, 30, 20];
-  // one scale for all columns so flows are conserved; small nodes get a minimum slot for their label
-  const baseH = 260;
+  const nodeW = 8, labelGap = 4, minFlow = 6, FS = 11, FS_VAL = 10;
+  const lw = cols.map(c => Math.ceil(Math.max(...c.map(n => Math.max(textWidth(n.name, FS), textWidth(amount(n.v), FS_VAL))))));
+  const width = () => 4 * nodeW + 4 * labelGap + 3 * minFlow + lw.reduce((t, w) => t + w, 0);
+  const floor = [36, Math.ceil(textWidth('Einnahmen', FS)), Math.ceil(textWidth('Ausgaben', FS)), 44];
+  for (const i of [0, 3, 2, 1]) while (width() > W && lw[i] > floor[i]) lw[i]--;
+  for (const i of [0, 3, 2, 1]) while (width() > W && lw[i] > 24) lw[i]--;
+  const extra = Math.max(0, W - width()) / 3;
+  const xs = [0];
+  for (let i = 1; i < 4; i++) xs.push(xs[i - 1] + nodeW + labelGap + lw[i - 1] + minFlow + extra);
+
+  // Vertical layout: one scale for all stages so flows are conserved; small nodes get a
+  // minimum slot so their label fits.
+  const minSlot = 28;
+  const pad = 6, top = 4, baseH = 260;
   const k = Math.min(...cols.map(c => (baseH - (c.length - 1) * pad) / c.reduce((t, n) => t + n.v, 0)));
   let H = 0;
   cols.forEach((col, ci) => {
     let y = top;
     for (const n of col) {
       n.x = xs[ci]; n.c = ci; n.h = Math.max(1, n.v * k);
-      const slot = Math.max(n.h, minSlot[ci]);
+      const slot = Math.max(n.h, minSlot);
       n.y = y + (slot - n.h) / 2;
       y += slot + pad;
     }
@@ -341,57 +359,51 @@ function renderSankey(incList, outList, saveList) {
     }
     return bands;
   }
+  const [c0, c1, c2, c3] = cols;
   const bands = [
-    ...link(col0, col1),
-    ...col1.flatMap(p => link([p], col2.filter(c => c.parent === p.name))),
+    ...link(c0, c1.filter(n => n.name === 'Einnahmen')),
+    ...link(c1, c2),
+    ...c2.flatMap(p => link([p], c3.filter(c => c.parent === p.name))),
   ];
 
-  const svg = el('svg', { role: 'img', 'aria-label': 'Geldfluss von Einnahmen zu Ausgaben und Sparen' });
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Geldfluss von den Einnahmen zu Ausgaben, Sparen und Kategorien' });
   const tip = (html) => (ev) => {
     const r = svg.getBoundingClientRect();
-    showTooltip(html, ev.clientX, ev.clientY - 8 > r.top ? ev.clientY - 8 : r.top);
+    showTooltip(html, ev.clientX, Math.max(r.top, ev.clientY - 8));
+  };
+  const hover = (node, html) => {
+    node.addEventListener('pointerenter', tip(html));
+    node.addEventListener('pointerdown', tip(html));
+    node.addEventListener('pointerleave', hideTooltip);
   };
   for (const l of bands) {
     const x0 = l.s.x + nodeW, x1 = l.t.x, xm = (x0 + x1) / 2, h = l.v * k;
     const d = `M${x0},${l.sy}C${xm},${l.sy} ${xm},${l.ty} ${x1},${l.ty}L${x1},${l.ty + h}C${xm},${l.ty + h} ${xm},${l.sy + h} ${x0},${l.sy + h}Z`;
-    const path = el('path', { d, fill: l.t.color, class: 'sk-link' });
-    const html = `<div class="tt-head">${esc(l.s.name)} → ${esc(l.t.name)}</div><div class="tt-row">${esc(money(l.v))}</div>`;
-    path.addEventListener('pointerenter', tip(html));
-    path.addEventListener('pointerdown', tip(html));
-    path.addEventListener('pointerleave', hideTooltip);
+    // Bands into the Einnahmen stage keep the source colour; later bands take the target's
+    const path = el('path', { d, fill: l.t.c === 1 ? l.s.color : l.t.color, class: 'sk-link' });
+    hover(path, `<div class="tt-head">${esc(l.s.name)} → ${esc(l.t.name)}</div><div class="tt-row">${esc(money(l.v))}</div>`);
     svg.appendChild(path);
   }
   for (const col of cols) {
     for (const n of col) {
       const rect = el('rect', { x: n.x, y: n.y, width: nodeW, height: n.h, rx: 2, fill: n.color });
-      const share = Math.round((n.v / (n.c === 2 ? (n.parent === 'Gespart' ? saved : out) : total)) * 100);
-      const html = `<div class="tt-head">${esc(n.name)}</div><div class="tt-row">${esc(money(n.v))} · ${share} %</div>`;
-      rect.addEventListener('pointerenter', tip(html));
-      rect.addEventListener('pointerdown', tip(html));
-      rect.addEventListener('pointerleave', hideTooltip);
+      const base = n.c < 3 ? (n.c === 0 ? inc : total) : (n.parent === 'Gespart' ? saved : out);
+      hover(rect, `<div class="tt-head">${esc(n.name)}</div><div class="tt-row">${esc(money(n.v))} · ${Math.round((n.v / base) * 100)} %</div>`);
       svg.appendChild(rect);
-      const tx = n.x + nodeW + 6, cy = n.y + n.h / 2;
-      if (n.c < 2) {
-        svg.append(
-          el('text', { x: tx, y: cy - 2, class: 'sk-label', 'data-w': labelW[n.c] }, n.name),
-          el('text', { x: tx, y: cy + 12, class: 'sk-value' }, `${moneyShort(n.v)} €`));
-      } else {
-        const t = el('text', { x: tx, y: cy + 4, class: 'sk-label', 'data-w': labelW[2] });
-        t.append(el('tspan', {}, n.name), el('tspan', { class: 'sk-value', dx: 4 }, `${moneyShort(n.v)} €`));
-        svg.appendChild(t);
-      }
+      const tx = n.x + nodeW + labelGap, cy = n.y + n.h / 2;
+      svg.append(
+        el('text', { x: tx, y: cy - 1, class: 'sk-label', 'data-w': lw[n.c] }, n.name),
+        el('text', { x: tx, y: cy + 11, class: 'sk-value' }, amount(n.v)));
     }
   }
-  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   box.appendChild(svg);
-  // Shorten names that would run into the next column (needs the SVG in the DOM to measure)
+  // Shorten names that would run into the next stage (needs the SVG in the DOM to measure)
   for (const t of svg.querySelectorAll('text[data-w]')) {
     const max = Number(t.dataset.w);
-    const nameNode = t.firstElementChild || t;
-    let name = nameNode.textContent;
-    while (t.getComputedTextLength() > max && name.length > 3) {
+    let name = t.textContent;
+    while (t.getComputedTextLength() > max && name.length > 2) {
       name = name.slice(0, -1);
-      nameNode.textContent = `${name.trimEnd()}…`;
+      t.textContent = `${name.trimEnd()}…`;
     }
   }
 }
