@@ -5,6 +5,7 @@
 const CONFIG_KEY = 'finance-config';
 const SESSION_KEY = 'finance-session';
 const CACHE_KEY = 'finance-cache';
+const APP_VERSION = '8';
 const PREFS_KEY = 'finance-prefs';
 const DEFAULT_URL = 'https://kpmiewijjxcwzfafyskd.supabase.co';
 
@@ -207,7 +208,7 @@ function render() {
   renderTransactions(entries.filter(e => inMonth(e, year, month)));
 
   const cache = load(CACHE_KEY, null);
-  $('lastSync').textContent = cache?.at ? `Zuletzt geladen: ${new Date(cache.at).toLocaleString('de-DE')} · Zum Aktualisieren nach unten ziehen` : '';
+  $('lastSync').textContent = `Version ${APP_VERSION}` + (cache?.at ? ` · Zuletzt geladen: ${new Date(cache.at).toLocaleString('de-DE')} · Zum Aktualisieren nach unten ziehen` : '');
 }
 
 function monthsSeries(n) {
@@ -711,10 +712,31 @@ function setupPullToRefresh() {
   let startY = null;
   window.addEventListener('touchstart', (e) => { startY = window.scrollY === 0 ? e.touches[0].clientY : null; }, { passive: true });
   window.addEventListener('touchend', (e) => {
-    if (startY != null && e.changedTouches[0].clientY - startY > 90 && !$('settings').open) refresh();
+    if (startY != null && e.changedTouches[0].clientY - startY > 90 && !$('settings').open) { checkForUpdate(); refresh(); }
     startY = null;
   }, { passive: true });
 }
+
+/* ---------- App updates ---------- */
+
+// iOS keeps home-screen apps alive for a long time, so check for a new version whenever the
+// app comes to the foreground (and on pull-to-refresh). A new service worker takes over
+// immediately (skipWaiting/clients.claim) and the page reloads once onto the new code.
+function setupUpdates() {
+  if (!('serviceWorker' in navigator)) return;
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register('sw.js').then((reg) => {
+    checkForUpdate = () => reg.update().catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
+  }).catch(() => {});
+}
+let checkForUpdate = () => {};
 
 /* ---------- Init ---------- */
 
@@ -792,7 +814,7 @@ function init() {
   window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (!$('dashboard').hidden) render(); }, 150); });
   document.addEventListener('scroll', hideTooltip, { passive: true });
   setupPullToRefresh();
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  setupUpdates();
 
   if (!config || !session) { $('empty').hidden = false; return; }
 
