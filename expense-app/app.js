@@ -86,12 +86,16 @@ function parseDate(v) {
 // kind: 'ausgabe' | 'sparen' | 'einnahme'
 function normalise(ausgaben, einnahmen) {
   const out = [];
+  // A category that is empty or looks like a date (shortcut filled in the wrong variable)
+  // falls back to the description for savings and to "Sonstiges" for spending.
+  const validCat = (c) => c && !/^\d{4}-\d{2}-\d{2}/.test(c.trim()) ? c.trim() : null;
   for (const r of ausgaben) {
+    const sparen = r.art === 'Sparen';
     out.push({
       date: parseDate(r.datum),
       amount: Number(r.betrag),
-      kind: r.art === 'Sparen' ? 'sparen' : 'ausgabe',
-      category: r.kategorie || 'Sonstiges',
+      kind: sparen ? 'sparen' : 'ausgabe',
+      category: validCat(r.kategorie) || (sparen ? r.beschreibung || 'Sparen' : 'Sonstiges'),
       note: r.beschreibung || '',
     });
   }
